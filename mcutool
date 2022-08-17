@@ -1,0 +1,101 @@
+#!/usr/bin/env python3.7
+
+import time
+import argparse
+import sys
+import os
+import sh
+
+import Jetson.GPIO as GPIO
+
+PIN_EN = "GPIO13"
+PIN_BOOT = "GPIO11"
+DELAY = 0.01
+
+MPY_BIN_URL = "https://micropython.org/resources/firmware/esp32c3-20220618-v1.19.1.bin"
+MPY_BIN_FILE = "esp32c3.bin"
+
+PORT = "/dev/ttyTHS0"
+
+__version__ = "0.1"
+
+def esptool(argv):
+    args = ["--chip", "esp32c3", "--port", PORT] + argv
+    cmd = sh.Command("/usr/local/bin/esptool.py")
+    return cmd(*args)
+
+def gpio_setup():
+    GPIO.setwarnings(False)
+    GPIO.setmode(GPIO.CVM)
+
+    GPIO.setup(PIN_EN, GPIO.OUT, initial=GPIO.HIGH)
+    GPIO.setup(PIN_BOOT, GPIO.OUT, initial=GPIO.HIGH)
+
+def get_micropython():
+    if not os.path.exists(MPY_BIN_FILE):
+        print("Downloading MicroPython bin")
+        sh.wget(MPY_BIN_URL, "-O", MPY_BIN_FILE)
+
+def flash_micropython():
+    get_micropython()
+    print(esptool(["--baud", 460800, "write_flash", "-z", "0x0", MPY_BIN_FILE]))
+
+def flash_ident():
+    print(esptool(["chip_id"]))
+    
+
+class Control:
+    def __init__(self):
+        parser = argparse.ArgumentParser(
+            description="mcutool.py v%s" % __version__,
+            usage="mcutool.py <command> [<args>]"
+        )    
+
+        parser.add_argument('command', help='Can be one of: [bootloader reboot halt start ident flashos signalon signaloff]')
+        args = parser.parse_args(sys.argv[1:2])
+
+        if args.command == 'signalon':
+            GPIO.setwarnings(False)
+            GPIO.setmode(GPIO.CVM)
+            GPIO.setup(PIN_BOOT, GPIO.OUT, initial=GPIO.HIGH)
+        elif args.command == 'signaloff':
+            GPIO.setwarnings(False)
+            GPIO.setmode(GPIO.CVM)
+            GPIO.setup(PIN_BOOT, GPIO.OUT, initial=GPIO.LOW)
+        else:
+            gpio_setup()
+            getattr(self, args.command)()
+
+    def bootloader(self):
+        GPIO.output(PIN_BOOT, GPIO.LOW)
+        time.sleep(DELAY)
+        self.reboot()
+        GPIO.output(PIN_BOOT, GPIO.HIGH)
+        time.sleep(DELAY)
+
+    def reboot(self):
+        GPIO.output(PIN_EN, GPIO.LOW)
+        time.sleep(DELAY)
+        GPIO.output(PIN_EN, GPIO.HIGH)
+        time.sleep(DELAY)  
+
+    def halt(self):
+        GPIO.output(PIN_EN, GPIO.LOW)
+        time.sleep(DELAY)
+
+    def start(self):
+        GPIO.output(PIN_EN, GPIO.HIGH)
+        time.sleep(DELAY)
+
+    def ident(self):
+        self.bootloader()
+        flash_ident()
+
+    def flashos(self):
+        self.bootloader()
+        flash_micropython()
+        reboot()
+
+
+if __name__ == '__main__':
+    Control()
