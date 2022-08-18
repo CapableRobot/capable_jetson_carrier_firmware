@@ -27,23 +27,34 @@ booting_timer = Neotimer(25000)
 halting_timer = Neotimer(10000)
 
 blinker = Neotimer(100)
-heartbeat_timer = Neotimer(1000)
+
+heartbeat_on_time = Neotimer(50)
+heartbeat_interval = Neotimer(1000)
 
 button_duration = 0
 
 class LED:
 
-    def __init__(self, pin):
+    def __init__(self, pin, inverted=False):
         self.pin = pin
         self.state = 0
+        self.inverted = inverted
 
     def on(self):
         self.state = 1
-        self.pin.on()
+
+        if self.inverted:
+            self.pin.off()
+        else:
+            self.pin.on()
 
     def off(self):
         self.state = 0
-        self.pin.off()
+
+        if self.inverted:
+            self.pin.on()
+        else:
+            self.pin.off()
 
     def toggle(self):
         if self.state:
@@ -52,11 +63,11 @@ class LED:
             self.on()
 
 power_led = LED(LED_BUTTON)
-debug_led = LED(LED_DEBUG)
+debug_led = LED(LED_DEBUG, inverted=True)
 
 def notify(string):
     if DEBUG_MODE:
-        print("%.3f %s" % (time.time(), string))
+        print("%.d %s" % (time.time(), string))
 
 def is_pressed(pin):
     return not pin.value()
@@ -66,9 +77,16 @@ def blink_power_button():
         power_led.toggle()
 
 def heartbeat():
-    if heartbeat_timer.repeat_execution():
+    global heartbeat_init
+
+    if heartbeat_interval.repeat_execution():
         # notify("IO %d 3v3 %d" % (SOM_SIGNAL.value(), SOM_RAIL.value()))
-        debug_led.toggle()
+        heartbeat_on_time.start()
+
+    if heartbeat_on_time.waiting():
+        debug_led.on()
+    else:
+        debug_led.off()
 
 def suspending_a_logic():
     global button_duration
@@ -76,6 +94,11 @@ def suspending_a_logic():
     if state_machine.execute_once:
         # Disable buffer, so that ESP continues to run when SOM shuts down
         EN_BUFFER.off()
+
+        ## Disable UART.  This prevents MCU from halting when SOM does.
+        ## Once this occurs, code cannot be updated again (as repl a)
+        ## So, MCU must be reset via SOM for to update to occur
+        Pin(20, Pin.OUT)
 
         notify("State : suspending A")
 
@@ -172,7 +195,6 @@ def idle_logic():
         notify("BUTTON %d" % button_duration)
         button_duration += 1
 
-        # TODO : implement hard power off with extended button press
         if button_duration > 1:
             state_machine.force_transition_to(suspending_a)
             button_duration = 0
