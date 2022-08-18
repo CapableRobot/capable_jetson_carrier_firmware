@@ -17,7 +17,7 @@ sudo python3.7 -m pip install sh
 sudo python3.7 -m pip install Jetson.GPIO
 sudo python3.7 -m pip install mpremote
 
-sudo adduser $USER dialout
+sudo adduser $USER dialout i2c gpio
 sudo systemctl disable nvgetty.service
 sudo systemctl set-default multi-user.target
 
@@ -29,6 +29,7 @@ wget https://raw.githubusercontent.com/CapableRobot/capable_jetson_carrier_firmw
 sudo mv mcupower.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable mcupower
+sudo reboot
 ```
 
 Download and flash firmware onto MCU:
