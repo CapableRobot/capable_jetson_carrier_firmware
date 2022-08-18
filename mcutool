@@ -94,7 +94,7 @@ class Control:
     def flashos(self):
         self.bootloader()
         flash_micropython()
-        reboot()
+        self.reboot()
 
 
 if __name__ == '__main__':
