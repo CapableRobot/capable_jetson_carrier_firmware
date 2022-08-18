@@ -42,6 +42,7 @@ cd firmware
 wget https://raw.githubusercontent.com/CapableRobot/capable_jetson_carrier_firmware/main/neotimer.py
 wget https://raw.githubusercontent.com/CapableRobot/capable_jetson_carrier_firmware/main/statemachine.py
 wget https://raw.githubusercontent.com/CapableRobot/capable_jetson_carrier_firmware/main/main.py
+wget https://raw.githubusercontent.com/CapableRobot/capable_jetson_carrier_firmware/main/boot.py
 mpremote connect /dev/ttyTHS0 fs cp neotimer.py :neotimer.py
 mpremote connect /dev/ttyTHS0 fs cp statemachine.py :statemachine.py
 mpremote connect /dev/ttyTHS0 fs cp main.py :main.py
