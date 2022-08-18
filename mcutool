@@ -4,8 +4,8 @@ import time
 import argparse
 import sys
 import os
-import sh
 
+import sh
 import Jetson.GPIO as GPIO
 
 PIN_EN = "GPIO13"
@@ -38,10 +38,14 @@ def get_micropython():
 
 def flash_micropython():
     get_micropython()
+    print("Flashing MCU")
     print(esptool(["--baud", 460800, "write_flash", "-z", "0x0", MPY_BIN_FILE]))
 
 def flash_ident():
     print(esptool(["chip_id"]))
+
+def flash_erase():
+    print(esptool(["erase_flash"]))
     
 
 class Control:
@@ -96,6 +100,10 @@ class Control:
         flash_micropython()
         self.reboot()
 
+    def flasherase(self):
+        self.bootloader()
+        flash_erase()
+        self.reboot()
 
 if __name__ == '__main__':
     Control()
