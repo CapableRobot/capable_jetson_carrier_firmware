@@ -40,11 +40,7 @@ mcutool flashos
 mkdir firmware
 cd firmware
 
-wget https://raw.githubusercontent.com/CapableRobot/capable_jetson_carrier_firmware/main/neotimer.py
-wget https://raw.githubusercontent.com/CapableRobot/capable_jetson_carrier_firmware/main/statemachine.py
-wget https://raw.githubusercontent.com/CapableRobot/capable_jetson_carrier_firmware/main/main.py
-wget https://raw.githubusercontent.com/CapableRobot/capable_jetson_carrier_firmware/main/boot.py
-
+mcutool fetchcode
 mcutool flashcode
 mcutool reboot
 ```

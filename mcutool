@@ -64,7 +64,7 @@ class Control:
             usage="mcutool.py <command> [<args>]"
         )    
 
-        parser.add_argument('command', help='Can be one of: [bootloader reboot halt start ident flashos flashcode signalon signaloff]')
+        parser.add_argument('command', help='Can be one of: [bootloader reboot halt start ident flashos flashcode fetchcode signalon signaloff]')
         parser.add_argument('files', nargs='*', default=[], help='List of files to upload to MCU.  Only used with "flashcode" command')
         args = parser.parse_args(sys.argv[1:])
 
@@ -84,6 +84,9 @@ class Control:
                 self.flashcode(glob.glob("*.py"))
             else:
                 self.flashcode(args.files)
+        elif args.command in ['fetchcode']:
+            getattr(self, args.command)()
+
         else:
             gpio_setup()
             getattr(self, args.command)()
@@ -122,6 +125,13 @@ class Control:
         self.bootloader()
         flash_erase()
         self.reboot()
+
+    def fetchcode(self):
+        baseurl = "https://raw.githubusercontent.com/CapableRobot/capable_jetson_carrier_firmware/main/"
+
+        for file in ["boot.py", "main.py", "neotimer.py", "statemachine.py"]:
+            print("Fetching {}".format(file))
+            sh.wget("{}/{}".format(baseurl, file))
 
     def flashcode(self, files):
         self.reboot()
