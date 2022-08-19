@@ -4,7 +4,10 @@ import time
 import argparse
 import sys
 import os
+import subprocess
+import glob
 
+from mpremote import pyboardextended as pyboard
 import sh
 import Jetson.GPIO as GPIO
 
@@ -23,6 +26,12 @@ def esptool(argv):
     args = ["--chip", "esp32c3", "--port", PORT] + argv
     cmd = sh.Command("/usr/local/bin/esptool.py")
     return cmd(*args)
+
+def mpremote(pyb, cmd, args, verbose=True):
+    if cmd == "fs":
+        pyboard.filesystem_command(pyb, args, progress_callback=False)
+    else:
+        print("ERROR : command '{} {}' not understood".format(fs, " ".join(args)))
 
 def gpio_setup():
     GPIO.setwarnings(False)
@@ -55,17 +64,26 @@ class Control:
             usage="mcutool.py <command> [<args>]"
         )    
 
-        parser.add_argument('command', help='Can be one of: [bootloader reboot halt start ident flashos signalon signaloff]')
-        args = parser.parse_args(sys.argv[1:2])
+        parser.add_argument('command', help='Can be one of: [bootloader reboot halt start ident flashos flashcode signalon signaloff]')
+        parser.add_argument('files', nargs='*', default=[], help='List of files to upload to MCU.  Only used with "flashcode" command')
+        args = parser.parse_args(sys.argv[1:])
 
         if args.command == 'signalon':
             GPIO.setwarnings(False)
             GPIO.setmode(GPIO.CVM)
             GPIO.setup(PIN_BOOT, GPIO.OUT, initial=GPIO.HIGH)
+
         elif args.command == 'signaloff':
             GPIO.setwarnings(False)
             GPIO.setmode(GPIO.CVM)
             GPIO.setup(PIN_BOOT, GPIO.OUT, initial=GPIO.LOW)
+
+        elif args.command == 'flashcode':
+            gpio_setup()
+            if len(args.files) == 0:
+                self.flashcode(glob.glob("*.py"))
+            else:
+                self.flashcode(args.files)
         else:
             gpio_setup()
             getattr(self, args.command)()
@@ -103,6 +121,22 @@ class Control:
     def flasherase(self):
         self.bootloader()
         flash_erase()
+        self.reboot()
+
+    def flashcode(self, files):
+        self.reboot()
+
+        ## Delay needed to allow MCU to fully boot before entering raw repl mode
+        time.sleep(0.5)
+
+        pyb = pyboard.PyboardExtended(PORT, baudrate=115200)
+
+        if not pyb.in_raw_repl:
+            pyb.enter_raw_repl(soft_reset=False)
+
+        for file in files:
+            mpremote(pyb, "fs", ["cp", file, f':{file}'])
+
         self.reboot()
 
 if __name__ == '__main__':
