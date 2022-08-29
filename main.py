@@ -24,7 +24,7 @@ debouncing_timer = Neotimer(1000)
 
 preidle_timer = Neotimer(2000)
 booting_timer = Neotimer(25000)
-halting_timer = Neotimer(10000)
+halting_timer = Neotimer(15000)
 
 blinker = Neotimer(100)
 
@@ -201,6 +201,11 @@ def idle_logic():
     
     if not is_pressed(BUTTON):
         button_duration = 0
+
+    ## SOM has signaled back that it has initiated a shutdown 
+    ## So, go to state where we disable the isolation buffer 
+    if SOM_SIGNAL.value() == False:
+        state_machine.force_transition_to(suspending_a)
 
 ## This state just waits a short period of time before going to idle
 ## This allows plenty of time for the SOM to assert the ENABLE pin
