@@ -9,7 +9,6 @@ import glob
 
 from mpremote import pyboardextended as pyboard
 import sh
-import Jetson.GPIO as GPIO
 
 PIN_EN = "GPIO13"
 PIN_BOOT = "GPIO11"
@@ -34,6 +33,8 @@ def mpremote(pyb, cmd, args, verbose=True):
         print("ERROR : command '{} {}' not understood".format(fs, " ".join(args)))
 
 def gpio_setup():
+    import Jetson.GPIO as GPIO
+
     GPIO.setwarnings(False)
     GPIO.setmode(GPIO.CVM)
 
@@ -79,7 +80,6 @@ class Control:
             GPIO.setup(PIN_BOOT, GPIO.OUT, initial=GPIO.LOW)
 
         elif args.command == 'flashcode':
-            gpio_setup()
             if len(args.files) == 0:
                 self.flashcode(glob.glob("*.py"))
             else:
@@ -134,11 +134,7 @@ class Control:
             sh.wget("{}/{}".format(baseurl, file))
 
     def flashcode(self, files):
-        self.reboot()
-
-        ## Delay needed to allow MCU to fully boot before entering raw repl mode
-        time.sleep(0.5)
-
+        
         pyb = pyboard.PyboardExtended(PORT, baudrate=115200)
 
         if not pyb.in_raw_repl:
@@ -154,7 +150,7 @@ class Control:
             mpremote(pyb, "fs", ["cp", file, f':{file}'])
             pyb.exec('wdt.feed()')
 
-        self.reboot()
+        pyb.exec_raw_no_follow('machine.reset()')
 
 if __name__ == '__main__':
     Control()
