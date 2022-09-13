@@ -10,8 +10,17 @@ import glob
 from mpremote import pyboardextended as pyboard
 import sh
 
-PIN_EN = "GPIO13"
-PIN_BOOT = "GPIO11"
+GPIO_ROOT = "/sys/class/gpio"
+
+NX_GPIOS = [
+    dict(num=421, name="MCU_AUX",    desc="MCU aux signal", direction="out", default=0),
+    dict(num=422, name="MCU_SIGNAL", desc="MCU signal / bootloader selection", direction="out", default=1),
+    dict(num=393, name="MCU_ENABLE", desc="MCU chip enable", direction="out", default=1),
+]
+
+GPIOS = dict(NX=NX_GPIOS)
+PLATFORM = 'NX'
+
 DELAY = 0.01
 
 MPY_BIN_URL = "https://micropython.org/resources/firmware/esp32c3-20220618-v1.19.1.bin"
@@ -20,6 +29,81 @@ MPY_BIN_FILE = "esp32c3.bin"
 PORT = "/dev/ttyTHS0"
 
 __version__ = "0.1"
+
+if (not os.access(GPIO_ROOT + '/export', os.W_OK) or not os.access(GPIO_ROOT + '/unexport', os.W_OK)):
+    raise RuntimeError("The current user does not have permissions set to access the library functionalites."
+                       "Please configure permissions or use the root user to run this")
+
+def _run(args):
+    out = subprocess.Popen(args.split(" "), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    stdout,stderr = out.communicate()
+    return stdout,stderr
+
+def _setup_gpio(entry, initial=None):
+    path = "{}/gpio{}".format(GPIO_ROOT, entry['num'])
+
+    if os.path.exists(path):
+        print("{} : Already created".format(entry['name']))
+    else:
+        value = entry['default']
+        if initial is not None:
+            value = initial
+
+        print("{} : Creating {} pin".format(entry['name'], entry['direction'], ))
+
+        with open("{}/export".format(GPIO_ROOT), 'w') as outfile:
+            outfile.write(str(entry['num']))
+
+        while not os.access("{}/gpio{}/value".format(GPIO_ROOT, entry['num']), os.R_OK | os.W_OK):
+            time.sleep(0.01)
+
+        with open("{}/gpio{}/direction".format(GPIO_ROOT, entry['num']), 'w') as outfile:
+            outfile.write(entry['direction'])
+
+        if entry['direction'] == "out":
+            with open("{}/gpio{}/value".format(GPIO_ROOT, entry['num']), 'w') as outfile:
+                outfile.write(str(value))    
+
+def _sys_gpio(dev, value):
+    path = "{}/gpio{}".format(GPIO_ROOT, dev['num'])
+
+    # Setup in with an initial value of 'value'
+    if not os.path.exists(path):
+        _setup_gpio(dev, value)
+        return
+
+    # If pin has been setup already, read it or update it
+    if value == None:
+        stdout,_ = _run("cat {}/gpio{}/value".format(GPIO_ROOT, dev['num']))
+        print(int(stdout.strip()))
+    else:
+        direction = open("{}/gpio{}/direction".format(GPIO_ROOT, dev['num']), 'r').read().strip()
+        
+        # Switch in from input to output
+        if direction == 'in':
+            with open("{}/gpio{}/direction".format(GPIO_ROOT, dev['num']), 'w') as outfile:
+                outfile.write("out")
+
+        with open("{}/gpio{}/value".format(GPIO_ROOT, dev['num']), 'w') as outfile:
+            outfile.write(str(value))
+
+def _gpio_cmd(name, value):
+    if value not in ['1', '0', 1, 0, None]:
+        print("ERROR: Value {} is invalid".format(value))
+        return
+
+    if name == None:
+        print("ERROR: Please specify a GPIO name:")
+        for dev in GPIOS[PLATFORM]:
+            print("  {} : {}".format(dev['name'], dev['desc']))
+        return
+
+    for dev in GPIOS[PLATFORM]:
+        if dev['name'] == name.upper():
+            _sys_gpio(dev, value)
+            return
+
+    print("ERROR: GPIO named {} is unknown".format(name))
 
 def esptool(argv):
     args = ["--chip", "esp32c3", "--port", PORT] + argv
@@ -31,15 +115,6 @@ def mpremote(pyb, cmd, args, verbose=True):
         pyboard.filesystem_command(pyb, args, progress_callback=False)
     else:
         print("ERROR : command '{} {}' not understood".format(fs, " ".join(args)))
-
-def gpio_setup():
-    import Jetson.GPIO as GPIO
-
-    GPIO.setwarnings(False)
-    GPIO.setmode(GPIO.CVM)
-
-    GPIO.setup(PIN_EN, GPIO.OUT, initial=GPIO.HIGH)
-    GPIO.setup(PIN_BOOT, GPIO.OUT, initial=GPIO.HIGH)
 
 def get_micropython():
     if not os.path.exists(MPY_BIN_FILE):
@@ -70,14 +145,10 @@ class Control:
         args = parser.parse_args(sys.argv[1:])
 
         if args.command == 'signalon':
-            GPIO.setwarnings(False)
-            GPIO.setmode(GPIO.CVM)
-            GPIO.setup(PIN_BOOT, GPIO.OUT, initial=GPIO.HIGH)
+            _gpio_cmd("MCU_SIGNAL", 1)
 
         elif args.command == 'signaloff':
-            GPIO.setwarnings(False)
-            GPIO.setmode(GPIO.CVM)
-            GPIO.setup(PIN_BOOT, GPIO.OUT, initial=GPIO.LOW)
+            _gpio_cmd("MCU_SIGNAL", 0)
 
         elif args.command == 'flashcode':
             if len(args.files) == 0:
@@ -88,28 +159,39 @@ class Control:
             getattr(self, args.command)()
 
         else:
-            gpio_setup()
             getattr(self, args.command)()
 
     def bootloader(self):
-        GPIO.output(PIN_BOOT, GPIO.LOW)
+        _gpio_cmd("MCU_SIGNAL", 0)
         time.sleep(DELAY)
         self.reboot()
-        GPIO.output(PIN_BOOT, GPIO.HIGH)
-        time.sleep(DELAY)
+        _gpio_cmd("MCU_SIGNAL", 1)
+        time.sleep(DELAY*10)
 
     def reboot(self):
-        GPIO.output(PIN_EN, GPIO.LOW)
-        time.sleep(DELAY)
-        GPIO.output(PIN_EN, GPIO.HIGH)
-        time.sleep(DELAY)  
+        self.halt()
+        self.start()
+        time.sleep(DELAY*10)
+
+    def reset(self):
+        pyb = pyboard.PyboardExtended(PORT, baudrate=115200)
+
+        if not pyb.in_raw_repl:
+            pyb.enter_raw_repl(soft_reset=False)
+
+        pyb.exec('import machine')
+        pyb.exec('machine.soft_reset()')
+        pyb.exit_raw_repl()
+        pyb.serial.write(b"\x04")
+        pyb.close()
 
     def halt(self):
-        GPIO.output(PIN_EN, GPIO.LOW)
+        _gpio_cmd("MCU_AUX", 0)
+        _gpio_cmd("MCU_ENABLE", 0)
         time.sleep(DELAY)
 
     def start(self):
-        GPIO.output(PIN_EN, GPIO.HIGH)
+        _gpio_cmd("MCU_ENABLE", 1)
         time.sleep(DELAY)
 
     def ident(self):
@@ -134,7 +216,11 @@ class Control:
             sh.wget("{}/{}".format(baseurl, file))
 
     def flashcode(self, files):
-        
+        self.reboot()
+
+        ## Delay needed to allow MCU to fully boot before entering raw repl mode
+        time.sleep(0.5)
+
         pyb = pyboard.PyboardExtended(PORT, baudrate=115200)
 
         if not pyb.in_raw_repl:
@@ -143,14 +229,20 @@ class Control:
         ## MCU might have a watchdog running on it with a short interval.
         ## In case that is true, override it with a time greater than how long
         ## it takes code to update, and feed the WDT between files being uploaded
-        pyb.exec('import machine')
-        pyb.exec('wdt = machine.WDT(timeout=30000)')
+        # pyb.exec('import machine')
+        # pyb.exec('wdt = machine.WDT(timeout=30000)')
 
         for file in files:
             mpremote(pyb, "fs", ["cp", file, f':{file}'])
-            pyb.exec('wdt.feed()')
+            # pyb.exec('wdt.feed()')
 
-        pyb.exec_raw_no_follow('machine.reset()')
+        # pyb.exec('import machine')
+        # pyb.exec('machine.soft_reset()')
+        # pyb.exit_raw_repl()
+        # pyb.serial.write(b"\x04")
+        # pyb.close()
+
+        self.reboot()
 
 if __name__ == '__main__':
     Control()

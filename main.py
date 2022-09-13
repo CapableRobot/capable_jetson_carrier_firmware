@@ -1,17 +1,19 @@
 
 import time
+import machine
 from machine import Pin
-from machine import WDT
 
 from neotimer import *
 from statemachine import *
 
 DEBUG_MODE = True
+HEARTBEAT = True
 
 BUTTON = Pin(2, Pin.IN)
 LED_BUTTON = Pin(4, Pin.OUT)
 SOM_RAIL = Pin(8, Pin.IN) 
 
+SOM_AUX = Pin(1, Pin.IN)
 SOM_SLEEP_WAKE = Pin(7, Pin.OUT, value=1)
 SOM_SIGNAL = Pin(9, Pin.IN)
 SOM_POWER_ENABLE = Pin(10, Pin.OUT, value=1)
@@ -22,7 +24,7 @@ LED_DEBUG = Pin(19, Pin.OUT)
 state_machine = StateMachine()
 debouncing_timer = Neotimer(1000)
 
-preidle_timer = Neotimer(2000)
+preidle_timer = Neotimer(1000)
 booting_timer = Neotimer(25000)
 halting_timer = Neotimer(15000)
 
@@ -32,8 +34,6 @@ heartbeat_on_time = Neotimer(50)
 heartbeat_interval = Neotimer(1000)
 
 button_duration = 0
-
-wdt = WDT(timeout=5000)
 
 class LED:
 
@@ -79,28 +79,32 @@ def blink_power_button():
         power_led.toggle()
 
 def heartbeat():
+    global heartbeat_init
 
     if heartbeat_interval.repeat_execution():
         # notify("IO %d 3v3 %d" % (SOM_SIGNAL.value(), SOM_RAIL.value()))
         heartbeat_on_time.start()
-        wdt.feed()
 
     if heartbeat_on_time.waiting():
         debug_led.on()
     else:
         debug_led.off()
 
+
+def prepare_for_shutdown():
+    # Disable buffer, so that ESP continues to run when SOM shuts down
+    EN_BUFFER.off()
+
+    ## Disable UART.  This prevents MCU from halting when SOM does.
+    ## Once this occurs, code cannot be updated again (as repl a)
+    ## So, MCU must be reset via SOM for to update to occur
+    Pin(20, Pin.OUT)
+
 def suspending_a_logic():
     global button_duration
 
     if state_machine.execute_once:
-        # Disable buffer, so that ESP continues to run when SOM shuts down
-        EN_BUFFER.off()
-
-        ## Disable UART.  This prevents MCU from halting when SOM does.
-        ## Once this occurs, code cannot be updated again (as repl a)
-        ## So, MCU must be reset via SOM for to update to occur
-        Pin(20, Pin.OUT)
+        prepare_for_shutdown()
 
         notify("State : suspending A")
 
@@ -209,21 +213,52 @@ def idle_logic():
     if SOM_SIGNAL.value() == False:
         state_machine.force_transition_to(suspending_a)
 
-## This state just waits a short period of time before going to idle
-## This allows plenty of time for the SOM to assert the ENABLE pin
-## prior to the MCU enabling the isolation buffer
-def preidle_logic():
+boot_target_state = None
+
+def entry_logic():
+    global boot_target_state
+
     if state_machine.execute_once:
-        notify("State : preidle")
+        notify("State : entry")
+        
+        host_on = SOM_RAIL.value()
+
+        if host_on and machine.reset_cause() == machine.SOFT_RESET:
+            notify("Host is on : MCU soft reset")
+            boot_target_state = idle
+
+        elif host_on and SOM_AUX.value() == False: 
+            notify("Host is on : MCU reboot")
+            boot_target_state = idle
+        else:
+            prepare_for_shutdown()
+
+            if host_on:
+                notify("Host is on : system cold boot")
+
+                # Wait 2 minutes until we allow for system power on
+                preidle_timer.duration = 120_000
+            else:
+                notify("Host is off : keeping QDEL low")
+
+            # Force QDEL low to prevent first boot from occuring
+            SOM_POWER_ENABLE.off()
+            notify("SOM off")
+                
+            boot_target_state = suspended
+            notify("set target state")
+
         preidle_timer.start()
+        notify("preidle_timer started")
 
     blink_power_button()
 
     if preidle_timer.finished():
-        state_machine.force_transition_to(idle)
+        state_machine.force_transition_to(boot_target_state)
+        
 
 
-preidle = state_machine.add_state(preidle_logic)
+entry = state_machine.add_state(entry_logic)
 idle = state_machine.add_state(idle_logic)
 suspending_a = state_machine.add_state(suspending_a_logic)
 suspending_b = state_machine.add_state(suspending_b_logic)
@@ -234,5 +269,7 @@ starting_b = state_machine.add_state(starting_b_logic)
 
 while True:
 
-    heartbeat()
+    if HEARTBEAT:
+        heartbeat()
+
     state_machine.run()
