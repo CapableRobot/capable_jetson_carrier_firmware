@@ -29,6 +29,7 @@ booting_timer = Neotimer(25000)
 halting_timer = Neotimer(15000)
 
 blinker = Neotimer(100)
+blinker_slow = Neotimer(500)
 
 heartbeat_on_time = Neotimer(50)
 heartbeat_interval = Neotimer(1000)
@@ -76,6 +77,10 @@ def is_pressed(pin):
 
 def blink_power_button():
     if blinker.repeat_execution():
+        power_led.toggle()
+
+def blink_power_button_slow():
+    if blinker_slow.repeat_execution():
         power_led.toggle()
 
 def heartbeat():
@@ -251,7 +256,7 @@ def entry_logic():
         preidle_timer.start()
         notify("preidle_timer started")
 
-    blink_power_button()
+    blink_power_button_slow()
 
     if preidle_timer.finished():
         state_machine.force_transition_to(boot_target_state)
