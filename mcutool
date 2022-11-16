@@ -229,12 +229,12 @@ class Control:
         ## MCU might have a watchdog running on it with a short interval.
         ## In case that is true, override it with a time greater than how long
         ## it takes code to update, and feed the WDT between files being uploaded
-        # pyb.exec('import machine')
-        # pyb.exec('wdt = machine.WDT(timeout=30000)')
+        pyb.exec('import machine')
+        pyb.exec('wdt = machine.WDT(timeout=30000)')
 
         for file in files:
             mpremote(pyb, "fs", ["cp", file, f':{file}'])
-            # pyb.exec('wdt.feed()')
+            pyb.exec('wdt.feed()')
 
         # pyb.exec('import machine')
         # pyb.exec('machine.soft_reset()')

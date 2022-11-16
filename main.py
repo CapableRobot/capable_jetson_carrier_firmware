@@ -2,12 +2,12 @@
 import time
 import machine
 from machine import Pin
+from machine import WDT
 
 from neotimer import *
 from statemachine import *
 
 DEBUG_MODE = True
-HEARTBEAT = True
 
 BUTTON = Pin(2, Pin.IN)
 LED_BUTTON = Pin(4, Pin.OUT)
@@ -35,6 +35,8 @@ heartbeat_on_time = Neotimer(50)
 heartbeat_interval = Neotimer(1000)
 
 button_duration = 0
+
+wdt = WDT(timeout=10000)
 
 class LED:
 
@@ -89,6 +91,7 @@ def heartbeat():
     if heartbeat_interval.repeat_execution():
         # notify("IO %d 3v3 %d" % (SOM_SIGNAL.value(), SOM_RAIL.value()))
         heartbeat_on_time.start()
+        wdt.feed()
 
     if heartbeat_on_time.waiting():
         debug_led.on()
@@ -274,7 +277,5 @@ starting_b = state_machine.add_state(starting_b_logic)
 
 while True:
 
-    if HEARTBEAT:
-        heartbeat()
-
+    heartbeat()
     state_machine.run()
